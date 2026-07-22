@@ -1,0 +1,901 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Urban Air Quality Intelligence — Command Center</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+  :root{
+    --bg:#020617; --panel:#0B1220; --panel-2:#0F1A2E; --border:#1E293B;
+    --text:#E7ECF3; --muted:#7C8AA3;
+    --accent:#33C6B0; --accent-dim:#123C37;
+    --cyan:#22D3EE; --purple:#A78BFA;
+    --good:#22C55E; --sat:#A3C93A; --mod:#E8B93B; --bad:#F08A3C; --vbad:#E6543C; --haz:#8B2E2E;
+    --radius:10px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{background:var(--bg); color:var(--text); font-family:'Inter',system-ui,sans-serif; -webkit-font-smoothing:antialiased;}
+  .mono{font-family:'IBM Plex Mono',monospace;}
+  a{color:var(--accent);}
+  .wrap{max-width:1360px;margin:0 auto;padding:20px clamp(14px,3vw,32px) 48px;}
+
+  header.top{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;
+    padding-bottom:16px;margin-bottom:18px;border-bottom:1px solid var(--border);}
+  header.top h1{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:clamp(20px,2.4vw,28px);letter-spacing:-0.01em;margin:0;}
+  header.top .eyebrow{display:block;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--accent);
+    letter-spacing:.12em;text-transform:uppercase;margin-bottom:4px;}
+  .header-right{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+  .status-pill{display:flex;align-items:center;gap:8px;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--muted);
+    border:1px solid var(--border);padding:6px 12px;border-radius:999px;background:var(--panel);}
+  .status-dot{width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 3px var(--accent-dim);}
+
+  .controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;background:var(--panel);
+    border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:14px;}
+  .controls label{font-size:11px;color:var(--muted);display:block;margin-bottom:4px;letter-spacing:.03em;}
+  .control-group{display:flex;flex-direction:column;}
+  select,button,input{font-family:'Inter',sans-serif;font-size:14px;background:var(--panel-2);color:var(--text);
+    border:1px solid var(--border);border-radius:8px;padding:9px 12px;min-width:150px;}
+  select:focus,button:focus,input:focus{outline:2px solid var(--accent);outline-offset:1px;}
+  button{background:var(--accent);color:#04211D;font-weight:600;border:none;cursor:pointer;min-width:auto;padding:9px 18px;}
+  button.ghost{background:transparent;border:1px solid var(--border);color:var(--text);}
+  button:hover{filter:brightness(1.08);}
+  button:disabled{opacity:.55;cursor:progress;}
+  .spacer{flex:1;}
+  #statusMsg{font-size:12px;color:var(--muted);font-family:'IBM Plex Mono',monospace;}
+
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:16px;overflow:hidden;}
+  .card h2{font-family:'Space Grotesk',sans-serif;font-size:14px;font-weight:600;margin:0 0 12px;letter-spacing:.02em;
+    color:var(--text);display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+  .card h2 .tag{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted);border:1px solid var(--border);
+    border-radius:4px;padding:1px 6px;text-transform:uppercase;}
+  .tag.cyan{color:var(--cyan);border-color:#0E4A54;}
+  .tag.purple{color:var(--purple);border-color:#3D3568;}
+  .note{font-size:11px;color:var(--muted);margin-top:8px;line-height:1.5;}
+
+  #mapOuter{position:relative;height:420px;width:100%;border-radius:8px;overflow:hidden;background:#0d1420;}
+  #map{position:absolute;inset:0;}
+  #windCanvas{position:absolute;inset:0;pointer-events:none;z-index:400;}
+
+  .ring-card{display:flex;flex-direction:column;align-items:center;text-align:center;}
+  .ring-outer{position:relative;width:160px;height:160px;border-radius:50%;
+    background:conic-gradient(var(--ring-color,#33C6B0) calc(var(--pct,0)*1%), #131b2b 0);
+    display:flex;align-items:center;justify-content:center;margin:6px 0 14px;transition:background .6s ease;}
+  .ring-inner{position:absolute;inset:12px;border-radius:50%;background:var(--panel);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;border:1px solid var(--border);}
+  .ring-inner .num{font-family:'IBM Plex Mono',monospace;font-size:32px;font-weight:600;line-height:1;}
+  .ring-inner .cat{font-size:11px;color:var(--muted);margin-top:5px;letter-spacing:.03em;}
+  .advisory-box{width:100%;text-align:left;font-size:13.5px;line-height:1.55;background:var(--panel-2);
+    border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-top:4px;}
+  .advisory-box .src{font-size:10.5px;color:var(--muted);margin-top:8px;font-family:'IBM Plex Mono',monospace;}
+  .channels{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}
+  .chip-ok{font-size:10.5px;font-family:'IBM Plex Mono',monospace;color:var(--good);border:1px solid #14401f;
+    background:#0d2417;border-radius:6px;padding:3px 8px;}
+
+  .chart-stats{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;}
+  .stat-chip{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted);border:1px solid var(--border);
+    border-radius:6px;padding:4px 10px;background:var(--panel-2);}
+  .stat-chip b{color:var(--text);}
+  .chart-holder{position:relative;height:280px;width:100%;}
+  @media (max-width:600px){.chart-holder{height:220px;}}
+
+  .grid-top{display:grid;grid-template-columns:2fr 1fr;gap:14px;margin-bottom:14px;}
+  @media (max-width:860px){.grid-top{grid-template-columns:1fr;}}
+  .grid-mid{display:grid;grid-template-columns:1.3fr 1fr;gap:14px;margin-bottom:14px;}
+  @media (max-width:900px){.grid-mid{grid-template-columns:1fr;}}
+  .grid-bottom{display:grid;grid-template-columns:1.1fr 1fr;gap:14px;margin-bottom:14px;}
+  @media (max-width:860px){.grid-bottom{grid-template-columns:1fr;}}
+
+  /* economic calculator */
+  .calc-row{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;margin-bottom:9px;font-size:12.5px;}
+  .calc-row input{width:110px;text-align:right;}
+  .calc-out{background:var(--panel-2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-top:8px;}
+  .calc-out .line{display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px;}
+  .calc-out .line b{font-family:'IBM Plex Mono',monospace;}
+  .roi-badge{display:inline-block;margin-top:6px;font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:13px;
+    padding:5px 12px;border-radius:999px;background:var(--accent-dim);color:var(--accent);border:1px solid var(--accent);}
+  .formula{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--muted);margin-top:8px;line-height:1.6;
+    background:#080d16;border-radius:6px;padding:8px 10px;border:1px solid var(--border);}
+
+  /* agent mesh */
+  .mesh-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px;}
+  @media (max-width:760px){.mesh-grid{grid-template-columns:1fr;}}
+  .agent-card{border:1px solid var(--border);border-radius:8px;padding:10px 12px;background:var(--panel-2);position:relative;}
+  .agent-card::before{content:"";position:absolute;top:10px;right:10px;width:7px;height:7px;border-radius:50%;
+    background:var(--agent-color,var(--cyan));box-shadow:0 0 6px var(--agent-color,var(--cyan));}
+  .agent-card .name{font-size:11.5px;font-weight:600;margin-bottom:4px;}
+  .agent-card .metric{font-family:'IBM Plex Mono',monospace;font-size:15px;color:var(--agent-color,var(--cyan));}
+  .agent-card .sub{font-size:10.5px;color:var(--muted);margin-top:3px;}
+  .console{background:#04070d;border:1px solid var(--border);border-radius:8px;padding:10px 12px;height:130px;
+    overflow-y:auto;font-family:'IBM Plex Mono',monospace;font-size:11px;color:#8FE6D6;}
+  .console div{margin-bottom:3px;white-space:pre-wrap;word-break:break-all;}
+  .console .tstamp{color:var(--muted);}
+
+  /* evidence packet */
+  .evi-check{display:flex;align-items:flex-start;gap:8px;font-size:12.5px;margin-bottom:8px;color:var(--text);}
+  .evi-check input{min-width:auto;width:16px;height:16px;margin-top:2px;padding:0;}
+  .hash-line{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--cyan);word-break:break-all;
+    background:#080d16;border-radius:6px;padding:8px 10px;margin:8px 0;border:1px solid var(--border);}
+
+  .meter-row{margin-bottom:12px;}
+  .meter-row:last-child{margin-bottom:0;}
+  .meter-label{display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:5px;color:var(--text);}
+  .meter-label .pct{font-family:'IBM Plex Mono',monospace;color:var(--muted);}
+  .meter-track{height:7px;border-radius:99px;background:var(--panel-2);overflow:hidden;}
+  .meter-fill{height:100%;border-radius:99px;background:var(--accent);}
+  .lb-row{display:grid;grid-template-columns:28px 1fr auto;gap:10px;align-items:center;padding:9px 0;
+    border-bottom:1px solid var(--border);font-size:13px;}
+  .lb-row:last-child{border-bottom:none;}
+  .lb-rank{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--muted);text-align:center;}
+  .lb-score{font-family:'IBM Plex Mono',monospace;font-size:11.5px;text-align:right;}
+  .lb-score .aqi{display:block;color:var(--muted);font-size:10.5px;}
+  .lb-row button{padding:4px 9px;font-size:10.5px;margin-left:8px;}
+
+  .evidence-drawer{display:none;margin-top:10px;border-top:1px dashed var(--border);padding-top:10px;}
+  .evidence-drawer.open{display:block;}
+
+  .empty-note{color:var(--muted);font-size:13px;padding:20px 4px;text-align:center;}
+  footer.foot{margin-top:22px;font-size:11px;color:var(--muted);text-align:center;font-family:'IBM Plex Mono',monospace;}
+
+  /* ---- new: global compare / city chips ---- */
+  .city-input-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;}
+  .city-input-row input{min-width:200px;flex:1;}
+  .chips-wrap{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;min-height:32px;}
+  .chip-city{display:flex;align-items:center;gap:6px;background:var(--panel-2);border:1px solid var(--border);
+    border-radius:999px;padding:5px 8px 5px 12px;font-size:12px;font-family:'IBM Plex Mono',monospace;}
+  .chip-city button{background:none;border:none;color:var(--muted);cursor:pointer;font-size:15px;padding:0 2px;min-width:auto;line-height:1;}
+  .chip-city button:hover{color:var(--vbad);}
+  #compChart-holder{position:relative;height:220px;width:100%;margin-bottom:14px;}
+  .comparison-table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  .comparison-table th{text-align:left;font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--muted);
+    text-transform:uppercase;padding:7px 8px;border-bottom:1px solid var(--border);}
+  .comparison-table td{padding:8px 8px;border-bottom:1px solid var(--border);vertical-align:top;}
+  .badge-cat{padding:2px 9px;border-radius:999px;font-size:10.5px;font-family:'IBM Plex Mono',monospace;color:#04211D;font-weight:700;}
+  .risk-tier{display:inline-block;padding:3px 10px;border-radius:999px;font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;}
+  .emission-tag{display:inline-block;font-size:10.5px;font-family:'IBM Plex Mono',monospace;background:var(--panel-2);
+    border:1px solid var(--border);border-radius:6px;padding:3px 8px;margin:2px 4px 2px 0;color:var(--text);}
+  .vuln-row{display:flex;justify-content:space-between;font-size:12px;padding:5px 0;border-bottom:1px dashed var(--border);}
+  .vuln-row:last-child{border-bottom:none;}
+
+  /* hyperlocal grid */
+  .hyperlocal-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;max-width:170px;margin-top:8px;}
+  .hg-cell{aspect-ratio:1;border-radius:4px;display:flex;align-items:center;justify-content:center;
+    font-family:'IBM Plex Mono',monospace;font-size:11px;color:#04211D;font-weight:700;}
+
+  /* citizen-friendly mode */
+  body.simple-mode .tech-only{display:none !important;}
+  body.simple-mode .advisory-box{font-size:16px;line-height:1.6;}
+  body.simple-mode .ring-inner .num{font-size:40px;}
+  body.simple-mode h1{font-size:26px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <div>
+      <span class="eyebrow">Municipal Environmental Intelligence</span>
+      <h1>Urban Air Quality Command Center</h1>
+    </div>
+    <div class="header-right">
+      <button class="ghost" id="modeToggle" onclick="toggleMode()">Citizen-friendly view</button>
+      <div class="status-pill"><span class="status-dot"></span><span id="apiStatus">connecting to station feed…</span></div>
+    </div>
+  </header>
+
+  <div class="controls tech-only">
+    <div class="control-group"><label for="citySelect">City</label>
+      <select id="citySelect"><option value="">All cities</option></select></div>
+    <div class="control-group"><label for="locSelect">Monitoring station</label>
+      <select id="locSelect"></select></div>
+    <div class="control-group"><label for="langSelect">Advisory language</label>
+      <select id="langSelect">
+        <option>English</option><option>Hindi</option><option>Bengali</option>
+        <option>Tamil</option><option>Kannada</option><option>Marathi</option>
+        <option>Telugu</option><option>Gujarati</option><option>Punjabi</option>
+      </select></div>
+    <div class="control-group" style="justify-content:flex-end;"><label>&nbsp;</label>
+      <button id="loadBtn" onclick="loadAll()">Load station</button></div>
+    <div class="spacer"></div>
+    <div id="statusMsg"></div>
+  </div>
+
+  <!-- ============ GLOBAL LIVE AQI EXPLORER + MULTI-CITY COMPARE ============ -->
+  <div class="card" style="margin-bottom:14px;">
+    <h2>Global live AQI explorer <span class="tag cyan">WAQI network · real data</span>
+      <span class="tag">up to 20 cities</span></h2>
+    <div class="city-input-row">
+      <input id="compCityInput" placeholder="e.g. london, tokyo, cairo, new delhi" onkeydown="if(event.key==='Enter')addComparisonCity()">
+      <button onclick="addComparisonCity()">Add to comparison</button>
+      <span id="compStatus" class="note" style="margin:0;"></span>
+    </div>
+    <div class="chips-wrap" id="compChips"><span class="note">No cities added yet — add a few to compare them on the map and chart below.</span></div>
+
+    <div class="note" style="margin-bottom:10px;">Added cities are pinned on the coverage map below (colour-coded by live AQI severity) and plotted in the bar chart. This uses the real WAQI public feed — not the trained local model.</div>
+    <div id="compChart-holder"><canvas id="comparisonChart"></canvas></div>
+
+    <h2 style="margin-top:4px;">Multi-city comparative intelligence dashboard <span class="tag purple">cross-city trend + risk view</span></h2>
+    <div class="note" style="margin-bottom:10px;">Compares live AQI, health-risk tier, and (where available) locally-trained forecast models across every city you've added — so an administrator can see which comparable cities are currently doing better and why.</div>
+    <div id="compTableWrap"><div class="empty-note">Add cities above to populate the comparison table.</div></div>
+  </div>
+
+  <div class="grid-top">
+    <div class="card">
+      <h2>Coverage map <span class="tag">Leaflet · CartoDB-style + WAQI markers</span></h2>
+      <div id="mapOuter"><div id="map"></div><canvas id="windCanvas"></canvas></div>
+      <div class="note">Faint moving lines are an <strong>illustrative</strong> airflow ambience, not measured wind data. Click the local station marker to reveal an illustrative dispersion cone. Larger translucent circles around compared cities are coverage placeholders, not measured sensor footprints.</div>
+    </div>
+
+    <div class="card ring-card">
+      <h2 style="align-self:flex-start;">Current reading (local station)</h2>
+      <div class="ring-outer" id="ringOuter">
+        <div class="ring-inner"><div class="num" id="aqiNum">—</div><div class="cat" id="aqiCat">no station loaded</div></div>
+      </div>
+      <div class="advisory-box">
+        <div id="advisoryText">Select a station and click <strong>Load station</strong>.</div>
+        <div class="src" id="advisorySrc"></div>
+        <div class="channels">
+          <span class="chip-ok">SMS queued (demo)</span>
+          <span class="chip-ok">IVR script generated (demo)</span>
+          <span class="chip-ok">Billboard feed queued (demo)</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:14px;">
+    <h2>24-step AQI forecast <span class="tag" id="cadenceTag">—</span></h2>
+    <div class="chart-stats" id="chartStats"></div>
+    <div class="chart-holder"><canvas id="forecastChart"></canvas></div>
+    <div class="note" style="margin-top:12px;">Hyperlocal 1km-grid AQI estimate around the station <span class="tag">illustrative interpolation from station reading + wind bearing, not a live dispersion model</span></div>
+    <div class="hyperlocal-grid" id="hyperlocalGrid"></div>
+  </div>
+
+  <div class="grid-mid">
+    <div class="card tech-only">
+      <h2>Economic impact estimator <span class="tag purple">assumption-based · editable</span></h2>
+      <div class="calc-row"><span>Population exposed near station</span>
+        <input type="number" id="calcPop" value="150000"></div>
+      <div class="calc-row"><span>Health cost per person / AQI-point / day ($)</span>
+        <input type="number" id="calcCostRate" value="0.02" step="0.01"></div>
+      <div class="calc-row"><span>Intervention cost ($/day, e.g. construction freeze)</span>
+        <input type="number" id="calcIntCost" value="18000"></div>
+      <div class="calc-row"><span>Assumed AQI reduction from intervention (%)</span>
+        <input type="number" id="calcReduction" value="30"></div>
+      <button class="ghost" onclick="runCalc()">Recalculate</button>
+      <div class="calc-out" id="calcOut">
+        <div class="empty-note" style="padding:8px 0;">Load a station, then recalculate.</div>
+      </div>
+      <div class="formula">healthCost = pop × max(0, AQI−100)/100 × costRate<br>
+        savings = healthCost × reduction%<br>ROI = savings ÷ interventionCost<br>
+        <em>Illustrative model — swap constants for validated local health-economics data before real use.</em></div>
+    </div>
+
+    <div class="card tech-only">
+      <h2>Agent pipeline status <span class="tag cyan">live telemetry, real values</span></h2>
+      <div class="mesh-grid">
+        <div class="agent-card" style="--agent-color:var(--cyan)">
+          <div class="name">Attribution Agent</div>
+          <div class="metric" id="agentAttr">—</div>
+          <div class="sub">top source confidence</div>
+        </div>
+        <div class="agent-card" style="--agent-color:var(--purple)">
+          <div class="name">Forecasting Agent</div>
+          <div class="metric" id="agentForecast">—</div>
+          <div class="sub">RMSE improvement vs baseline</div>
+        </div>
+        <div class="agent-card" style="--agent-color:var(--accent)">
+          <div class="name">Enforcement Agent</div>
+          <div class="metric" id="agentEnf">—</div>
+          <div class="sub">top priority score</div>
+        </div>
+      </div>
+      <div class="console" id="console"></div>
+    </div>
+  </div>
+
+  <div class="grid-bottom">
+    <div class="card">
+      <h2>Geospatial pollution source attribution <span class="tag">pollutant-ratio model</span></h2>
+      <div id="attributionBox"><div class="empty-note">No data yet.</div></div>
+    </div>
+    <div class="card">
+      <h2>Enforcement intelligence & prioritization <span class="tag">top 5 · click for evidence</span></h2>
+      <div id="enforcementBox"><div class="empty-note">No data yet.</div></div>
+    </div>
+  </div>
+
+  <footer class="foot">Real station data: Pune MPCB · Illustrative multi-city data: Delhi / Mumbai / Kolkata / Bengaluru / Chennai (synthetic, seeded from public 2024-25 averages) · Global live lookup + comparison: WAQI/AQICN public API · Vulnerability, emission-source, and 1km-grid figures are seeded illustrative placeholders — not real GIS/census/permit data.</footer>
+</div>
+
+<script>
+const API = "http://localhost:5000/api";
+const WAQI_TOKEN = "e98385b425291e9a8ebbc1d6184318bccddd98e7";
+
+/* ---------- static translations (used whenever the LLM path is unavailable) ---------- */
+const TRANSLATIONS = {
+  Hindi: { Good:"वायु गुणवत्ता अच्छी है। सभी बाहरी गतिविधियों के लिए सुरक्षित।",
+    Satisfactory:"वायु गुणवत्ता संतोषजनक है। संवेदनशील समूह अधिक परिश्रम से बचें।",
+    Moderate:"मध्यम प्रदूषण। अस्थमा/हृदय रोगी बाहर अधिक परिश्रम से बचें।",
+    Bad:"खराब वायु गुणवत्ता। श्वास संबंधी समस्या वालों को बाहरी गतिविधि से बचना चाहिए।",
+    "Very Bad":"बहुत खराब वायु गुणवत्ता। सभी लोग बाहर निकलना कम करें।",
+    Hazardous:"खतरनाक वायु गुणवत्ता। घर के अंदर रहें, संभव हो तो मास्क/एयर प्यूरिफायर का प्रयोग करें।" },
+  Bengali: { Good:"বায়ুর মান ভালো। সব ধরনের বাইরের কাজকর্মের জন্য নিরাপদ।",
+    Satisfactory:"বায়ুর মান সন্তোষজনক। সংবেদনশীল ব্যক্তিরা দীর্ঘ পরিশ্রম এড়িয়ে চলুন।",
+    Moderate:"মাঝারি দূষণ। হাঁপানি/হৃদরোগীরা বাইরের পরিশ্রম কমান।",
+    Bad:"খারাপ বায়ুর মান। শ্বাসকষ্ট থাকলে বাইরের কার্যকলাপ এড়িয়ে চলুন।",
+    "Very Bad":"অত্যন্ত খারাপ বায়ুর মান। সবাই বাইরে যাওয়া কমিয়ে দিন।",
+    Hazardous:"বিপজ্জনক বায়ুর মান। ঘরে থাকুন, সম্ভব হলে মাস্ক/এয়ার পিউরিফায়ার ব্যবহার করুন।" },
+  Tamil: { Good:"காற்றின் தரம் நல்லது. அனைத்து வெளிப்புற செயல்பாடுகளுக்கும் பாதுகாப்பானது.",
+    Satisfactory:"காற்றின் தரம் திருப்திகரமானது. உணர்திறன் கொண்டோர் அதிக உடலுழைப்பைத் தவிர்க்கவும்.",
+    Moderate:"மிதமான மாசு. ஆஸ்துமா/இதய நோயாளிகள் வெளியில் உடலுழைப்பைக் குறைக்கவும்.",
+    Bad:"மோசமான காற்றின் தரம். சுவாசக் கோளாறு உள்ளவர்கள் வெளிப்புற செயல்பாட்டைத் தவிர்க்கவும்.",
+    "Very Bad":"மிக மோசமான காற்றின் தரம். அனைவரும் வெளியே செல்வதைக் குறைக்கவும்.",
+    Hazardous:"ஆபத்தான காற்றின் தரம். வீட்டிற்குள் இருங்கள், முடிந்தால் மாஸ்க்/எயார் பியூரிஃபையர் பயன்படுத்தவும்." },
+  Kannada: { Good:"ಗಾಳಿಯ ಗುಣಮಟ್ಟ ಉತ್ತಮವಾಗಿದೆ. ಎಲ್ಲಾ ಹೊರಾಂಗಣ ಚಟುವಟಿಕೆಗಳಿಗೆ ಸುರಕ್ಷಿತ.",
+    Satisfactory:"ಗಾಳಿಯ ಗುಣಮಟ್ಟ ತೃಪ್ತಿಕರವಾಗಿದೆ. ಸೂಕ್ಷ್ಮ ಗುಂಪುಗಳು ಹೆಚ್ಚು ಶ್ರಮ ತಪ್ಪಿಸಿ.",
+    Moderate:"ಮಧ್ಯಮ ಮಾಲಿನ್ಯ. ಆಸ್ತಮಾ/ಹೃದಯ ರೋಗಿಗಳು ಹೊರಾಂಗಣ ಶ್ರಮ ಕಡಿಮೆ ಮಾಡಿ.",
+    Bad:"ಕೆಟ್ಟ ಗಾಳಿಯ ಗುಣಮಟ್ಟ. ಉಸಿರಾಟದ ಸಮಸ್ಯೆ ಇರುವವರು ಹೊರಾಂಗಣ ಚಟುವಟಿಕೆ ತಪ್ಪಿಸಿ.",
+    "Very Bad":"ಅತ್ಯಂತ ಕೆಟ್ಟ ಗಾಳಿಯ ಗುಣಮಟ್ಟ. ಎಲ್ಲರೂ ಹೊರಗೆ ಹೋಗುವುದನ್ನು ಕಡಿಮೆ ಮಾಡಿ.",
+    Hazardous:"ಅಪಾಯಕಾರಿ ಗಾಳಿಯ ಗುಣಮಟ್ಟ. ಮನೆಯೊಳಗೆ ಇರಿ, ಸಾಧ್ಯವಾದರೆ ಮಾಸ್ಕ್/ಏರ್ ಪ್ಯೂರಿಫೈಯರ್ ಬಳಸಿ." },
+  Marathi: { Good:"हवेची गुणवत्ता चांगली आहे. सर्व बाह्य क्रियाकलापांसाठी सुरक्षित.",
+    Satisfactory:"हवेची गुणवत्ता समाधानकारक आहे. संवेदनशील गटांनी जास्त श्रम टाळावेत.",
+    Moderate:"मध्यम प्रदूषण. दमा/हृदयरोगी बाहेरील श्रम कमी करा.",
+    Bad:"खराब हवेची गुणवत्ता. श्वसनाचा त्रास असणाऱ्यांनी बाह्य क्रियाकलाप टाळावेत.",
+    "Very Bad":"अत्यंत खराब हवेची गुणवत्ता. सर्वांनी बाहेर जाणे कमी करा.",
+    Hazardous:"धोकादायक हवेची गुणवत्ता. घरातच रहा, शक्य असल्यास मास्क/एअर प्युरिफायर वापरा." },
+  Telugu: { Good:"గాలి నాణ్యత బాగుంది. అన్ని బహిరంగ కార్యకలాపాలకు సురక్షితం.",
+    Satisfactory:"గాలి నాణ్యత సంతృప్తికరంగా ఉంది. సున్నితమైన సమూహాలు ఎక్కువ శ్రమను నివారించాలి.",
+    Moderate:"మధ్యస్థ కాలుష్యం. ఆస్తమా/గుండె జబ్బు ఉన్నవారు బహిరంగ శ్రమను తగ్గించాలి.",
+    Bad:"చెడు గాలి నాణ్యత. శ్వాసకోశ సమస్యలు ఉన్నవారు బహిరంగ కార్యకలాపాలను నివారించాలి.",
+    "Very Bad":"చాలా చెడు గాలి నాణ్యత. అందరూ బయట గడిపే సమయాన్ని తగ్గించాలి.",
+    Hazardous:"ప్రమాదకర గాలి నాణ్యత. ఇంట్లోనే ఉండండి, వీలైతే మాస్క్/ఎయిర్ ప్యూరిఫైయర్ వాడండి." },
+  Gujarati: { Good:"હવાની ગુણવત્તા સારી છે. તમામ બહારની પ્રવૃત્તિઓ માટે સલામત.",
+    Satisfactory:"હવાની ગુણવત્તા સંતોષકારક છે. સંવેદનશીલ જૂથોએ વધુ પરિશ્રમ ટાળવો.",
+    Moderate:"મધ્યમ પ્રદૂષણ. અસ્થમા/હૃદયરોગીઓએ બહારનો પરિશ્રમ ઘટાડવો.",
+    Bad:"ખરાબ હવાની ગુણવત્તા. શ્વસન સમસ્યા ધરાવતા લોકોએ બહારની પ્રવૃત્તિ ટાળવી.",
+    "Very Bad":"ખૂબ જ ખરાબ હવાની ગુણવત્તા. બધાએ બહાર જવાનું ઘટાડવું.",
+    Hazardous:"જોખમી હવાની ગુણવત્તા. ઘરની અંદર રહો, શક્ય હોય તો માસ્ક/એર પ્યુરિફાયર વાપરો." },
+  Punjabi: { Good:"ਹਵਾ ਦੀ ਗੁਣਵੱਤਾ ਚੰਗੀ ਹੈ। ਸਾਰੀਆਂ ਬਾਹਰੀ ਗਤੀਵਿਧੀਆਂ ਲਈ ਸੁਰੱਖਿਅਤ।",
+    Satisfactory:"ਹਵਾ ਦੀ ਗੁਣਵੱਤਾ ਤਸੱਲੀਬਖਸ਼ ਹੈ। ਸੰਵੇਦਨਸ਼ੀਲ ਸਮੂਹਾਂ ਨੂੰ ਵਧੇਰੇ ਮਿਹਨਤ ਤੋਂ ਬਚਣਾ ਚਾਹੀਦਾ ਹੈ।",
+    Moderate:"ਦਰਮਿਆਨਾ ਪ੍ਰਦੂਸ਼ਣ। ਦਮਾ/ਦਿਲ ਦੇ ਰੋਗੀਆਂ ਨੂੰ ਬਾਹਰੀ ਮਿਹਨਤ ਘਟਾਉਣੀ ਚਾਹੀਦੀ ਹੈ।",
+    Bad:"ਖਰਾਬ ਹਵਾ ਦੀ ਗੁਣਵੱਤਾ। ਸਾਹ ਦੀ ਸਮੱਸਿਆ ਵਾਲਿਆਂ ਨੂੰ ਬਾਹਰੀ ਗਤੀਵਿਧੀ ਤੋਂ ਬਚਣਾ ਚਾਹੀਦਾ ਹੈ।",
+    "Very Bad":"ਬਹੁਤ ਖਰਾਬ ਹਵਾ ਦੀ ਗੁਣਵੱਤਾ। ਸਾਰਿਆਂ ਨੂੰ ਬਾਹਰ ਜਾਣਾ ਘਟਾਉਣਾ ਚਾਹੀਦਾ ਹੈ।",
+    Hazardous:"ਖਤਰਨਾਕ ਹਵਾ ਦੀ ਗੁਣਵੱਤਾ। ਘਰ ਦੇ ਅੰਦਰ ਰਹੋ, ਸੰਭਵ ਹੋਵੇ ਤਾਂ ਮਾਸਕ/ਏਅਰ ਪਿਊਰੀਫਾਇਰ ਵਰਤੋ।" },
+};
+const ENGLISH_BASE = {
+  Good:"Air quality is good. Safe for all outdoor activities.",
+  Satisfactory:"Air quality is satisfactory. Sensitive groups should limit prolonged exertion.",
+  Moderate:"Moderate pollution. People with asthma/heart conditions should reduce outdoor exertion.",
+  Bad:"Poor air quality. Avoid outdoor activity if you have respiratory issues.",
+  "Very Bad":"Very poor air quality. Everyone should minimize outdoor exposure.",
+  Hazardous:"Hazardous air quality. Stay indoors, use air purifiers/masks if available.",
+};
+/* NOTE: good-faith short translations of generic AQI categories, not clinical guidance.
+   Have a native speaker verify before any real citizen-facing deployment. */
+
+const LOCATION_COORDS = [
+  { m:"anand vihar", lat:28.6469, lng:77.3152 }, { m:"rk puram", lat:28.5645, lng:77.1855 },
+  { m:"punjabi bagh", lat:28.6692, lng:77.1310 }, { m:"dwarka", lat:28.5921, lng:77.0460 },
+  { m:"bandra", lat:19.0596, lng:72.8295 }, { m:"andheri", lat:19.1197, lng:72.8468 },
+  { m:"colaba", lat:18.9067, lng:72.8147 }, { m:"chembur", lat:19.0522, lng:72.9006 },
+  { m:"rabindra sarobar", lat:22.5122, lng:88.3639 }, { m:"ballygunge", lat:22.5288, lng:88.3653 },
+  { m:"victoria", lat:22.5448, lng:88.3426 },
+  { m:"silk board", lat:12.9172, lng:77.6228 }, { m:"hebbal", lat:13.0358, lng:77.5970 },
+  { m:"jayanagar", lat:12.9250, lng:77.5938 },
+  { m:"manali", lat:13.1670, lng:80.2585 }, { m:"t nagar", lat:13.0418, lng:80.2341 },
+  { m:"alandur", lat:12.9975, lng:80.2006 },
+  { m:"karve road", lat:18.5074, lng:73.8077 }, { m:"mpcb-kr", lat:18.5074, lng:73.8077 },
+  { m:"nal stop", lat:18.5018, lng:73.8329 }, { m:"mpcb-ns", lat:18.5018, lng:73.8329 },
+  { m:"swargate", lat:18.5018, lng:73.8636 }, { m:"mpcb-swgt", lat:18.5018, lng:73.8636 },
+  { m:"pimpri chinchwad", lat:18.6298, lng:73.7997 },
+  { m:"pimpri", lat:18.6279, lng:73.8009 }, { m:"mpcb-pmpr", lat:18.6279, lng:73.8009 },
+  { m:"bhosari", lat:18.6298, lng:73.8131 }, { m:"mpcb-bsri", lat:18.6298, lng:73.8131 },
+];
+const CITY_CENTERS = { delhi:[28.6139,77.2090], mumbai:[19.0760,72.8777], kolkata:[22.5726,88.3639],
+  bengaluru:[12.9716,77.5946], chennai:[13.0827,80.2707], pune:[18.5204,73.8567] };
+const WIND_BEARING = { delhi:300, mumbai:250, kolkata:210, bengaluru:240, chennai:60, pune:280 };
+const LOCAL_MODEL_CITIES = ["delhi","mumbai","kolkata","bengaluru","bangalore","chennai","pune"];
+
+function resolveCity(name){
+  const lower = name.toLowerCase();
+  const m = lower.match(/\(([^)]+)\)/);
+  if(m) return m[1].trim();
+  return "pune";
+}
+function resolveCoords(name){
+  const lower = name.toLowerCase();
+  for(const e of LOCATION_COORDS){ if(lower.includes(e.m)) return [e.lat, e.lng]; }
+  const city = resolveCity(name);
+  return CITY_CENTERS[city] || CITY_CENTERS.pune;
+}
+function aqiCategory(aqi){
+  if(aqi<=50) return "Good"; if(aqi<=100) return "Satisfactory"; if(aqi<=200) return "Moderate";
+  if(aqi<=300) return "Bad"; if(aqi<=400) return "Very Bad"; return "Hazardous";
+}
+function aqiColor(aqi){
+  if(aqi<=50) return "#22C55E"; if(aqi<=100) return "#A3C93A"; if(aqi<=200) return "#E8B93B";
+  if(aqi<=300) return "#F08A3C"; if(aqi<=400) return "#E6543C"; return "#8B2E2E";
+}
+const CADENCE_UNIT = { hourly:"h", daily:"d", daily_ish:"d", weekly:"wk", monthly:"mo", annual:"yr" };
+
+async function sha256Hex(str){
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
+}
+
+/* ---------- deterministic mock helpers (illustrative placeholders) ---------- */
+function hashStr(s){
+  let h = 0;
+  for(let i=0;i<s.length;i++){ h = (h*31 + s.charCodeAt(i)) | 0; }
+  return Math.abs(h);
+}
+function mockVulnerability(name){
+  const h = hashStr(name);
+  return {
+    hospitals: 3 + (h % 12),
+    schools: 5 + ((h >> 3) % 20),
+    elderlyPct: 8 + ((h >> 6) % 15),
+    outdoorWorkersPct: 10 + ((h >> 9) % 20),
+  };
+}
+function healthRiskTier(aqi, vuln){
+  let score = aqi;
+  if(vuln.elderlyPct > 15) score += 20;
+  if(vuln.hospitals > 8) score += 10;
+  if(vuln.outdoorWorkersPct > 20) score += 15;
+  if(score <= 80) return {tier:"Low", color:"#22C55E"};
+  if(score <= 150) return {tier:"Moderate", color:"#E8B93B"};
+  if(score <= 250) return {tier:"High", color:"#F08A3C"};
+  return {tier:"Severe", color:"#E6543C"};
+}
+function generateWardAdvisory(cityName, aqi, lang){
+  const cat = aqiCategory(aqi);
+  const vuln = mockVulnerability(cityName);
+  const risk = healthRiskTier(aqi, vuln);
+  let base = (TRANSLATIONS[lang] && TRANSLATIONS[lang][cat]) || (lang==="English" ? ENGLISH_BASE[cat] : null) || ENGLISH_BASE[cat] || "Monitor local air quality updates.";
+  return { cat, vuln, risk, base,
+    targetedLines: [
+      `${vuln.hospitals} hospitals/clinics in the illustrative ward radius — flag for indoor-air advisories to in-patients.`,
+      `${vuln.schools} schools in radius — consider recess/outdoor-sports guidance at this AQI level.`,
+      `${vuln.elderlyPct}% modeled elderly population share — priority group for door-to-door / IVR outreach.`,
+      `${vuln.outdoorWorkersPct}% modeled outdoor-worker share — construction/traffic-police shift advisories recommended.`,
+    ]
+  };
+}
+function mockEmissionSources(name){
+  const h = hashStr(name);
+  return {
+    constructionSites: h % 5,
+    industries: (h >> 2) % 4,
+    wasteBurningReports: (h >> 4) % 3,
+    dieselFleetGPS: (h >> 6) % 6,
+  };
+}
+
+/* ---------- console log helper (real events only) ---------- */
+function logConsole(msg){
+  const el = document.getElementById("console");
+  const t = new Date().toLocaleTimeString();
+  el.innerHTML += `<div><span class="tstamp">[${t}]</span> ${msg}</div>`;
+  el.scrollTop = el.scrollHeight;
+}
+
+/* ---------- citizen-friendly mode ---------- */
+function toggleMode(){
+  document.body.classList.toggle("simple-mode");
+  const btn = document.getElementById("modeToggle");
+  btn.textContent = document.body.classList.contains("simple-mode") ? "Authority / technical view" : "Citizen-friendly view";
+}
+
+/* ---------- map ---------- */
+let map = L.map("map", { scrollWheelZoom:true }).setView([22.9734, 78.6569], 4.4);
+L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+  attribution:'&copy; OpenStreetMap &copy; CARTO', maxZoom:19, subdomains:"abcd"
+}).addTo(map);
+let coverageCircle=null, marker=null, plumePoly=null;
+let comparisonLayerGroup = L.layerGroup().addTo(map);
+new ResizeObserver(()=>{ map.invalidateSize(); sizeWindCanvas(); }).observe(document.getElementById("mapOuter"));
+
+/* ambient illustrative wind canvas */
+const windCanvas = document.getElementById("windCanvas");
+const wctx = windCanvas.getContext("2d");
+let streaks = [];
+function sizeWindCanvas(){
+  const r = document.getElementById("mapOuter").getBoundingClientRect();
+  windCanvas.width = r.width; windCanvas.height = r.height;
+}
+function initStreaks(bearingDeg){
+  const rad = bearingDeg * Math.PI/180;
+  streaks = Array.from({length:36}, () => ({
+    x: Math.random()*windCanvas.width, y: Math.random()*windCanvas.height,
+    len: 14+Math.random()*22, speed: 0.6+Math.random()*1.1,
+    dx: Math.sin(rad), dy: -Math.cos(rad), alpha: 0.08+Math.random()*0.12,
+  }));
+}
+function animateWind(){
+  wctx.clearRect(0,0,windCanvas.width,windCanvas.height);
+  wctx.strokeStyle = "rgba(51,198,176,0.5)"; wctx.lineWidth = 1;
+  for(const s of streaks){
+    wctx.globalAlpha = s.alpha;
+    wctx.beginPath(); wctx.moveTo(s.x,s.y); wctx.lineTo(s.x-s.dx*s.len, s.y-s.dy*s.len); wctx.stroke();
+    s.x += s.dx*s.speed; s.y += s.dy*s.speed;
+    if(s.x<0||s.x>windCanvas.width||s.y<0||s.y>windCanvas.height){ s.x=Math.random()*windCanvas.width; s.y=Math.random()*windCanvas.height; }
+  }
+  wctx.globalAlpha = 1;
+  requestAnimationFrame(animateWind);
+}
+sizeWindCanvas(); initStreaks(280); animateWind();
+
+function destPoint(lat,lng,bearingDeg,distMeters){
+  const R=6371000, brng=bearingDeg*Math.PI/180, lat1=lat*Math.PI/180, lng1=lng*Math.PI/180;
+  const lat2=Math.asin(Math.sin(lat1)*Math.cos(distMeters/R)+Math.cos(lat1)*Math.sin(distMeters/R)*Math.cos(brng));
+  const lng2=lng1+Math.atan2(Math.sin(brng)*Math.sin(distMeters/R)*Math.cos(lat1), Math.cos(distMeters/R)-Math.sin(lat1)*Math.sin(lat2));
+  return [lat2*180/Math.PI, lng2*180/Math.PI];
+}
+function drawPlume(lat,lng,bearingDeg,color){
+  if(plumePoly) map.removeLayer(plumePoly);
+  const spread=32, dist=7000;
+  const p1=destPoint(lat,lng,bearingDeg-spread,dist), p2=destPoint(lat,lng,bearingDeg+spread,dist);
+  plumePoly = L.polygon([[lat,lng],p1,p2],{color, weight:1, dashArray:"4 4", fillColor:color, fillOpacity:0.14})
+    .addTo(map).bindPopup("Illustrative dispersion cone (assumed wind bearing) — not live meteorological data.");
+}
+
+/* ---------- hyperlocal 1km grid (illustrative interpolation) ---------- */
+function renderHyperlocalGrid(centerAqi, bearingDeg){
+  const wrap = document.getElementById("hyperlocalGrid");
+  const cells = [];
+  for(let i=0;i<9;i++){
+    const variance = Math.sin((i+1)*1.7 + bearingDeg/40) * 0.18;
+    cells.push(Math.max(5, Math.round(centerAqi * (1+variance))));
+  }
+  wrap.innerHTML = cells.map(v=>`<div class="hg-cell" style="background:${aqiColor(v)}">${v}</div>`).join("");
+}
+
+/* ---------- chart ---------- */
+let chart=null;
+function renderChart(forecast, cadence){
+  const unit = CADENCE_UNIT[cadence] || "step";
+  const labels = forecast.map(f => `+${f.step_ahead}${unit}`);
+  const data = forecast.map(f => f.predicted_aqi);
+  const ctx = document.getElementById("forecastChart");
+  if(chart) chart.destroy();
+  chart = new Chart(ctx, { type:"line",
+    data:{ labels, datasets:[{ label:"Predicted AQI", data, borderColor:"#33C6B0",
+      backgroundColor:"rgba(51,198,176,0.12)", pointRadius:2, pointBackgroundColor:"#33C6B0",
+      tension:0.25, fill:true, borderWidth:2 }]},
+    options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:"index",intersect:false},
+      plugins:{legend:{display:false}},
+      scales:{ x:{ticks:{color:"#7C8AA3",font:{family:"IBM Plex Mono",size:10},maxRotation:0,autoSkip:true,maxTicksLimit:12},grid:{color:"#1C2433"}},
+               y:{ticks:{color:"#7C8AA3",font:{family:"IBM Plex Mono",size:10}},grid:{color:"#1C2433"}} } } });
+}
+
+async function fetchJSON(url){
+  const t0 = performance.now();
+  const res = await fetch(url);
+  const ms = Math.round(performance.now()-t0);
+  if(!res.ok) throw new Error(`${url} → HTTP ${res.status}`);
+  const data = await res.json();
+  logConsole(`GET ${url.replace(API,"")} → ${res.status} (${ms} ms)`);
+  return data;
+}
+
+async function initSelects(){
+  try{
+    const cities = await fetchJSON(`${API}/cities`);
+    const citySel = document.getElementById("citySelect");
+    cities.forEach(c => citySel.innerHTML += `<option value="${c}">${c}</option>`);
+    await populateLocations();
+    document.getElementById("apiStatus").textContent = "station feed connected";
+  }catch(err){
+    document.getElementById("apiStatus").textContent = "station feed unreachable";
+    document.getElementById("statusMsg").textContent =
+      `Could not reach ${API}. Confirm backend is running and this page is served over http:// (not file://).`;
+    console.error(err);
+  }
+}
+async function populateLocations(){
+  const city = document.getElementById("citySelect").value;
+  const url = city ? `${API}/locations?city=${encodeURIComponent(city)}` : `${API}/locations`;
+  const locs = await fetchJSON(url);
+  const sel = document.getElementById("locSelect");
+  sel.innerHTML = "";
+  locs.forEach(l => sel.innerHTML += `<option value="${l}">${l}</option>`);
+}
+document.getElementById("citySelect").addEventListener("change", () => populateLocations().catch(console.error));
+document.getElementById("langSelect").addEventListener("change", () => { if(comparisonCities.length) renderComparisonTable(); });
+
+let lastAqi = 100;
+
+async function loadAll(){
+  const loc = document.getElementById("locSelect").value;
+  const lang = document.getElementById("langSelect").value;
+  if(!loc) return;
+  const btn = document.getElementById("loadBtn");
+  btn.disabled = true; btn.textContent = "Loading…";
+  document.getElementById("statusMsg").textContent = `Fetching ${loc}…`;
+  logConsole(`Dispatching parallel requests for <b>${loc}</b> to forecasting / attribution / enforcement / advisory agents…`);
+
+  try{
+    const [fc, attr, enf, adv] = await Promise.all([
+      fetchJSON(`${API}/forecast/${encodeURIComponent(loc)}?hours=24`),
+      fetchJSON(`${API}/attribution/${encodeURIComponent(loc)}`),
+      fetchJSON(`${API}/enforcement`),
+      fetchJSON(`${API}/advisory/${encodeURIComponent(loc)}?lang=${encodeURIComponent(lang)}`),
+    ]);
+
+    const cadence = (fc.metrics && fc.metrics.cadence) || "hourly";
+    renderChart(fc.forecast || [], cadence);
+    document.getElementById("cadenceTag").textContent = cadence;
+    const m = fc.metrics || {};
+    document.getElementById("chartStats").innerHTML = `
+      <span class="stat-chip">model RMSE <b>${m.model_rmse ?? "—"}</b></span>
+      <span class="stat-chip">persistence baseline <b>${m.persistence_baseline_rmse ?? "—"}</b></span>
+      <span class="stat-chip">improvement <b>${m.improvement_pct ?? "—"}%</b></span>
+      <span class="stat-chip">test samples <b>${m.n_test_samples ?? "—"}</b></span>
+      <span class="stat-chip">grid cadence <b>${cadence}</b></span>`;
+    document.getElementById("agentForecast").textContent = `${m.improvement_pct ?? "—"}%`;
+
+    const aqi = adv.aqi; lastAqi = aqi;
+    const cat = aqiCategory(aqi), color = aqiColor(aqi);
+    const pct = Math.min(100,(aqi/500)*100);
+    const ring = document.getElementById("ringOuter");
+    ring.style.setProperty("--pct", pct.toFixed(1));
+    ring.style.setProperty("--ring-color", color);
+    document.getElementById("aqiNum").textContent = Math.round(aqi);
+    document.getElementById("aqiCat").textContent = cat;
+
+    let advisoryText = adv.advisory, srcLabel = `${adv.language} · ${adv.source==="llm"?"LLM-generated":"template fallback"}`;
+    if(adv.source !== "llm" && lang !== "English" && TRANSLATIONS[lang] && TRANSLATIONS[lang][cat]){
+      advisoryText = TRANSLATIONS[lang][cat];
+      srcLabel = `${lang} · local static translation (LLM unavailable)`;
+    }
+    document.getElementById("advisoryText").textContent = advisoryText;
+    document.getElementById("advisorySrc").textContent = srcLabel;
+
+    const attrBox = document.getElementById("attributionBox");
+    const rows = Object.entries(attr.confidence_scores).sort((a,b)=>b[1]-a[1]);
+    attrBox.innerHTML = `<div style="font-size:13px;margin-bottom:12px;color:var(--muted);">Top attribution:
+      <strong style="color:var(--text);">${attr.attributed_source}</strong></div>
+      ${rows.map(([k,v])=>`<div class="meter-row"><div class="meter-label"><span>${k}</span>
+        <span class="pct mono">${(v*100).toFixed(1)}%</span></div>
+        <div class="meter-track"><div class="meter-fill" style="width:${(v*100).toFixed(1)}%"></div></div></div>`).join("")}`;
+    document.getElementById("agentAttr").textContent = `${(rows[0][1]*100).toFixed(1)}%`;
+
+    const enfBox = document.getElementById("enforcementBox");
+    enfBox.innerHTML = enf.slice(0,5).map((e,i)=>`
+      <div>
+        <div class="lb-row">
+          <div class="lb-rank">#${i+1}</div>
+          <div class="lb-loc">${e.Location}</div>
+          <div class="lb-score">${e.priority_score}<span class="aqi">avg AQI ${e.avg_aqi}</span>
+            <button class="ghost" onclick="toggleEvidence(${i})">Evidence</button></div>
+        </div>
+        <div class="evidence-drawer" id="evi-${i}"></div>
+      </div>`).join("");
+    document.getElementById("agentEnf").textContent = enf[0] ? enf[0].priority_score : "—";
+    window.__enfData = enf;
+
+    const [lat,lng] = resolveCoords(loc);
+    const city = resolveCity(loc);
+    map.setView([lat,lng], 12, { animate:true });
+    initStreaks(WIND_BEARING[city] || 280);
+    if(marker) map.removeLayer(marker);
+    if(coverageCircle) map.removeLayer(coverageCircle);
+    if(plumePoly){ map.removeLayer(plumePoly); plumePoly=null; }
+    marker = L.circleMarker([lat,lng], { radius:6, color:"#fff", weight:2, fillColor:color, fillOpacity:1 })
+      .addTo(map).on("click", () => drawPlume(lat,lng, WIND_BEARING[city]||280, color));
+    coverageCircle = L.circle([lat,lng], { radius:4000, color, weight:1.5, fillColor:color, fillOpacity:0.15 })
+      .addTo(map).bindPopup(`<b>${loc}</b><br>AQI ${Math.round(aqi)} — ${cat}`);
+    setTimeout(()=>map.invalidateSize(),200);
+
+    renderHyperlocalGrid(aqi, WIND_BEARING[city] || 280);
+
+    logConsole(`All agents resolved for <b>${loc}</b>. AQI=${Math.round(aqi)} (${cat}).`);
+    document.getElementById("statusMsg").textContent = `Loaded ${loc} — ${new Date().toLocaleTimeString()}`;
+    runCalc();
+  }catch(err){
+    console.error(err);
+    logConsole(`ERROR: ${err.message}`);
+    document.getElementById("statusMsg").textContent = `Failed to load ${loc}: ${err.message}`;
+  }finally{
+    btn.disabled = false; btn.textContent = "Load station";
+  }
+}
+
+/* ---------- economic calculator (transparent, editable, illustrative) ---------- */
+function runCalc(){
+  const pop = parseFloat(document.getElementById("calcPop").value) || 0;
+  const rate = parseFloat(document.getElementById("calcCostRate").value) || 0;
+  const intCost = parseFloat(document.getElementById("calcIntCost").value) || 1;
+  const reduction = (parseFloat(document.getElementById("calcReduction").value) || 0)/100;
+  const excess = Math.max(0, lastAqi - 100);
+  const healthCost = pop * excess * rate;
+  const savings = healthCost * reduction;
+  const roi = savings / intCost;
+  document.getElementById("calcOut").innerHTML = `
+    <div class="line"><span>Est. daily public health cost burden</span><b>$${healthCost.toLocaleString(undefined,{maximumFractionDigits:0})}</b></div>
+    <div class="line"><span>Est. savings if intervention applied</span><b>$${savings.toLocaleString(undefined,{maximumFractionDigits:0})}</b></div>
+    <div class="line"><span>Intervention cost</span><b>$${intCost.toLocaleString()}</b></div>
+    <div class="roi-badge">ROI ≈ ${roi.toFixed(2)}x</div>`;
+}
+["calcPop","calcCostRate","calcIntCost","calcReduction"].forEach(id=>
+  document.getElementById(id).addEventListener("change", runCalc));
+
+/* ---------- evidence packet (real hash of real data) + emission-source correlation ---------- */
+async function toggleEvidence(i){
+  const drawer = document.getElementById(`evi-${i}`);
+  const isOpen = drawer.classList.contains("open");
+  document.querySelectorAll(".evidence-drawer").forEach(d=>d.classList.remove("open"));
+  if(isOpen) return;
+  const entry = window.__enfData[i];
+  const payload = JSON.stringify(entry);
+  const hash = await sha256Hex(payload);
+  const emit = mockEmissionSources(entry.Location);
+  drawer.innerHTML = `
+    <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">SHA-256 digest of this record's live API payload (verifiable — recompute over the same JSON to confirm it matches):</div>
+    <div class="hash-line">${hash}</div>
+    <div style="font-size:11.5px;color:var(--muted);margin-bottom:8px;">Manual corroboration checklist for the reviewing officer (not auto-confirmed):</div>
+    <label class="evi-check"><input type="checkbox"> Cross-check against satellite (Sentinel-5P/MODIS) imagery for this ward</label>
+    <label class="evi-check"><input type="checkbox"> Confirm registered emission source / construction permit at this location</label>
+    <label class="evi-check"><input type="checkbox"> Attach site inspection photos / timestamped notes</label>
+    <div style="margin-top:10px;font-size:11.5px;color:var(--muted);">Enforcement Intelligence — simulated registered emission-source correlation (demo registry, not a live GIS/permit feed):</div>
+    <div style="margin-top:4px;">
+      <span class="emission-tag">${emit.constructionSites} construction permits nearby</span>
+      <span class="emission-tag">${emit.industries} industrial stacks nearby</span>
+      <span class="emission-tag">${emit.wasteBurningReports} waste-burning reports (30d)</span>
+      <span class="emission-tag">${emit.dieselFleetGPS} diesel-fleet GPS clusters</span>
+    </div>
+    <button class="ghost" style="margin-top:10px;" onclick='downloadEvidence(${JSON.stringify(entry).replace(/'/g,"&apos;")}, "${hash}")'>Export evidence packet (JSON)</button>
+  `;
+  drawer.classList.add("open");
+}
+function downloadEvidence(entry, hash){
+  const packet = { record: entry, sha256_of_record: hash, generated_at: new Date().toISOString(),
+    note: "Digest covers only the enforcement-ranking JSON shown above; emission-source correlation is a simulated placeholder, not independently corroborated evidence." };
+  const blob = new Blob([JSON.stringify(packet,null,2)], {type:"application/json"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = "evidence_packet.json"; a.click();
+}
+
+/* ============ Global live AQI + multi-city comparison (real WAQI data) ============ */
+let comparisonCities = [];
+let comparisonChart = null;
+
+async function addComparisonCity(){
+  const input = document.getElementById("compCityInput");
+  const q = input.value.trim();
+  const status = document.getElementById("compStatus");
+  if(!q){ status.textContent = "Enter a city name."; return; }
+  if(comparisonCities.length >= 20){ status.textContent = "Maximum of 20 cities reached."; return; }
+  if(comparisonCities.some(c=>c.query.toLowerCase()===q.toLowerCase())){ status.textContent = `${q} is already added.`; return; }
+  status.textContent = `Looking up ${q}…`;
+  try{
+    const res = await fetch(`https://api.waqi.info/feed/${encodeURIComponent(q)}/?token=${WAQI_TOKEN}`);
+    const data = await res.json();
+    if(data.status !== "ok"){ status.textContent = `No live station found for "${q}".`; return; }
+    const d = data.data;
+    const entry = {
+      query: q, name: d.city.name, aqi: d.aqi, category: aqiCategory(d.aqi), color: aqiColor(d.aqi),
+      lat: d.city.geo[0], lng: d.city.geo[1], dominant: (d.dominentpol||"—").toUpperCase(),
+      time: (d.time && d.time.s) || "—",
+    };
+    comparisonCities.push(entry);
+    input.value = "";
+    status.textContent = `Added ${entry.name}. (${comparisonCities.length}/20)`;
+    renderComparison();
+  }catch(err){ status.textContent = `Lookup failed: ${err.message}`; }
+}
+function removeComparisonCity(query){
+  comparisonCities = comparisonCities.filter(c=>c.query!==query);
+  renderComparison();
+}
+function renderComparison(){
+  const chips = document.getElementById("compChips");
+  chips.innerHTML = comparisonCities.map(c=>`
+    <span class="chip-city" style="border-color:${c.color}55">
+      <span style="width:8px;height:8px;border-radius:50%;background:${c.color};display:inline-block;"></span>
+      ${c.name} — ${c.aqi}
+      <button onclick="removeComparisonCity('${c.query.replace(/'/g,"\\'")}')" title="Remove">×</button>
+    </span>`).join("") || `<span class="note">No cities added yet — add a few to compare them on the map and chart below.</span>`;
+
+  comparisonLayerGroup.clearLayers();
+  comparisonCities.forEach(c=>{
+    L.circleMarker([c.lat,c.lng], {radius:8, color:"#fff", weight:1.5, fillColor:c.color, fillOpacity:0.9})
+      .addTo(comparisonLayerGroup)
+      .bindPopup(`<b>${c.name}</b><br>Live AQI ${c.aqi} — ${c.category}<br><span style="font-size:10px;color:#7C8AA3">WAQI network, ${c.time}</span>`);
+    L.circle([c.lat,c.lng], {radius: 15000, color:c.color, weight:1, fillColor:c.color, fillOpacity:0.08})
+      .addTo(comparisonLayerGroup);
+  });
+  if(comparisonCities.length){
+    const bounds = L.latLngBounds(comparisonCities.map(c=>[c.lat,c.lng]));
+    map.fitBounds(bounds.pad(0.3));
+  }
+  renderComparisonChart();
+  renderComparisonTable();
+}
+function renderComparisonChart(){
+  const ctx = document.getElementById("comparisonChart");
+  if(comparisonChart) comparisonChart.destroy();
+  if(!comparisonCities.length) return;
+  comparisonChart = new Chart(ctx, {
+    type:"bar",
+    data:{
+      labels: comparisonCities.map(c=>c.name),
+      datasets:[{ label:"Live AQI", data: comparisonCities.map(c=>c.aqi),
+        backgroundColor: comparisonCities.map(c=>c.color), borderRadius:4 }]
+    },
+    options:{ responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{display:false}},
+      scales:{ x:{ticks:{color:"#7C8AA3",font:{family:"IBM Plex Mono",size:10},maxRotation:40,minRotation:20},grid:{display:false}},
+               y:{ticks:{color:"#7C8AA3",font:{family:"IBM Plex Mono",size:10}},grid:{color:"#1C2433"}} } }
+  });
+}
+function renderComparisonTable(){
+  const wrap = document.getElementById("compTableWrap");
+  if(!comparisonCities.length){ wrap.innerHTML = `<div class="empty-note">Add cities above to compare.</div>`; return; }
+  const lang = document.getElementById("langSelect").value;
+  wrap.innerHTML = `
+    <table class="comparison-table">
+      <thead><tr><th>City</th><th>Live AQI</th><th>Category</th><th>Dominant</th><th>Local model</th><th>Health-risk tier</th><th></th></tr></thead>
+      <tbody>
+      ${comparisonCities.map((c,i)=>{
+        const hasLocal = LOCAL_MODEL_CITIES.some(lc=>c.name.toLowerCase().includes(lc));
+        const adv = generateWardAdvisory(c.name, c.aqi, lang);
+        return `<tr>
+          <td>${c.name}</td>
+          <td class="mono">${c.aqi}</td>
+          <td><span class="badge-cat" style="background:${c.color}">${c.category}</span></td>
+          <td class="mono">${c.dominant}</td>
+          <td>${hasLocal ? "trained forecaster available" : "global live only"}</td>
+          <td><span class="risk-tier" style="background:${adv.risk.color}22;color:${adv.risk.color};border:1px solid ${adv.risk.color}">${adv.risk.tier}</span></td>
+          <td><button class="ghost" onclick="toggleCityAdvisory(${i})">Advisory</button></td>
+        </tr>
+        <tr><td colspan="7" style="padding:0;border-bottom:none;"><div id="cityadv-inner-${i}" class="evidence-drawer"></div></td></tr>`;
+      }).join("")}
+      </tbody>
+    </table>`;
+}
+function toggleCityAdvisory(i){
+  const el = document.getElementById(`cityadv-inner-${i}`);
+  const isOpen = el.classList.contains("open");
+  document.querySelectorAll("[id^='cityadv-inner-']").forEach(d=>d.classList.remove("open"));
+  if(isOpen) return;
+  const c = comparisonCities[i];
+  const lang = document.getElementById("langSelect").value;
+  const adv = generateWardAdvisory(c.name, c.aqi, lang);
+  const emit = mockEmissionSources(c.name);
+  el.innerHTML = `
+    <div style="padding:12px 14px;">
+      <div style="font-size:12.5px;margin-bottom:8px;"><strong>${lang} advisory</strong> (${adv.cat}): ${adv.base}</div>
+      <div class="vuln-row"><span>Modeled hospitals in ward radius</span><b>${adv.vuln.hospitals}</b></div>
+      <div class="vuln-row"><span>Modeled schools in ward radius</span><b>${adv.vuln.schools}</b></div>
+      <div class="vuln-row"><span>Modeled elderly population share</span><b>${adv.vuln.elderlyPct}%</b></div>
+      <div class="vuln-row"><span>Modeled outdoor-worker share</span><b>${adv.vuln.outdoorWorkersPct}%</b></div>
+      <div class="note" style="margin:8px 0;">${adv.targetedLines.join("<br>")}</div>
+      <div class="channels">
+        <span class="chip-ok">SMS queued (demo)</span>
+        <span class="chip-ok">IVR script generated (demo)</span>
+        <span class="chip-ok">Billboard feed queued (demo)</span>
+      </div>
+      <div style="margin-top:10px;font-size:11.5px;color:var(--muted);">Simulated enforcement correlation — registered emission sources (demo registry, not live GIS):</div>
+      <div style="margin-top:4px;">
+        <span class="emission-tag">${emit.constructionSites} construction permits nearby</span>
+        <span class="emission-tag">${emit.industries} industrial stacks nearby</span>
+        <span class="emission-tag">${emit.wasteBurningReports} waste-burning reports (30d)</span>
+        <span class="emission-tag">${emit.dieselFleetGPS} diesel-fleet GPS clusters</span>
+      </div>
+      <div class="note">Vulnerability figures and emission-source correlations are illustrative placeholders seeded from the city name — replace with real hospital/school geocoding, census data, and municipal permit/GPS feeds before operational use.</div>
+    </div>`;
+  el.classList.add("open");
+}
+
+initSelects();
+</script>
+</body>
+</html>

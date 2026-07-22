@@ -1,0 +1,7 @@
+﻿__pycache__/
+*.pyc
+.env
+data/PUNE_AQI.csv
+data/raw/*.csv
+data/processed/*.csv
+.pytest_cache/
