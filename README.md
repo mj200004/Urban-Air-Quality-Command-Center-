@@ -15,3 +15,4 @@ Open `frontend/index.html` in a browser (it calls http://localhost:5000).
 - `backend/advisory.py` - citizen advisory generation (Anthropic API)
 - `backend/app.py` - Flask API tying it together
 - `frontend/index.html` - dashboard (map + charts)
+<img width="432" height="467" alt="image" src="https://github.com/user-attachments/assets/1d1c640c-5b7d-4f00-85a6-f460d066087a" />
